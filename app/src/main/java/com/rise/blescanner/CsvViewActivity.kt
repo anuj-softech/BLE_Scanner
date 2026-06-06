@@ -57,10 +57,20 @@ class CsvViewActivity : AppCompatActivity() {
                 val headerRow = createRow(lines[0].split(","), isHeader = true)
                 binding.tableLayout.addView(headerRow)
 
+                var renderedCount = 0
+                var hasMoreRows = false
                 for (i in 1 until lines.size) {
                     if (lines[i].isBlank()) continue
+                    if (renderedCount >= 100) {
+                        hasMoreRows = true
+                        break
+                    }
                     val dataRow = createRow(lines[i].split(","), isHeader = false)
                     binding.tableLayout.addView(dataRow)
+                    renderedCount++
+                }
+                if (hasMoreRows) {
+                    Toast.makeText(this, "File is large; displaying first 100 rows only.", Toast.LENGTH_LONG).show()
                 }
             }
         } catch (e: Exception) {

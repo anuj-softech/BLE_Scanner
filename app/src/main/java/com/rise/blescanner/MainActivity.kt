@@ -74,8 +74,15 @@ class MainActivity : AppCompatActivity() {
     private var currentBle2Rssi: Int? = null
     private var currentBle3Rssi: Int? = null
 
-    private var csvFileWriter: FileWriter? = null
+    private var csvFileWriter: java.io.BufferedWriter? = null
     private var currentCsvFile: File? = null
+    private var writeExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private var lastFlushTime = 0L
+    private var lastUiUpdateTime = 0L
+
+
+    var isAccelEnabled = false;
+    var isGyroEnabled = false;
 
     private val sensorListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
@@ -102,6 +109,16 @@ class MainActivity : AppCompatActivity() {
                 binding.txtGyroYAxis.text = String.format(Locale.US, "%.6f", y)
                 binding.txtGyroZAxis.text = String.format(Locale.US, "%.6f", z)
                 binding.visualizerGyro.addValues(x, y, z)
+            }
+            if (isAccelEnabled || isGyroEnabled) {
+                if (currentBle1Rssi != null && currentBle2Rssi != null && currentBle3Rssi != null) {
+                    binding.waitingText.visibility = View.INVISIBLE
+                    binding.txtRecordingStatus.text = "RECORDING"
+                    writeTelemetryRow()
+                } else {
+                    binding.waitingText.visibility = View.VISIBLE
+                    binding.txtRecordingStatus.text = "WAITING"
+                }
             }
         }
 
@@ -212,13 +229,14 @@ class MainActivity : AppCompatActivity() {
         setupZoneSelector()
         setupIMUSelector()
 
-        val isAccelEnabled = configStore.getRecordAccel()
-        val isGyroEnabled = configStore.getRecordGyro()
+        isAccelEnabled = configStore.getRecordAccel()
+        isGyroEnabled = configStore.getRecordGyro()
         val showVisualizer = configStore.getShowVisualizer()
 
         binding.layoutAccelVisual.visibility = if (isAccelEnabled) View.VISIBLE else View.GONE
         binding.layoutGyroVisual.visibility = if (isGyroEnabled) View.VISIBLE else View.GONE
-        binding.layoutSensorVisuals.visibility = if (showVisualizer && (isAccelEnabled || isGyroEnabled)) View.VISIBLE else View.GONE
+        binding.layoutSensorVisuals.visibility =
+            if (showVisualizer && (isAccelEnabled || isGyroEnabled)) View.VISIBLE else View.GONE
     }
 
     private fun setupUI() {
@@ -247,13 +265,20 @@ class MainActivity : AppCompatActivity() {
         if (isRecording) {
             binding.btnToggleRecording.text = "STOP RECORDING"
             binding.btnToggleRecording.setIconResource(R.drawable.ic_stop)
-            binding.btnToggleRecording.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#F44336"))
+            binding.btnToggleRecording.backgroundTintList =
+                android.content.res.ColorStateList.valueOf(Color.parseColor("#F44336"))
             binding.txtRecordingStatus.text = "RECORDING"
             binding.txtRecordingStatus.setTextColor(Color.parseColor("#4CAF50"))
         } else {
             binding.btnToggleRecording.text = "START RECORDING"
             binding.btnToggleRecording.setIconResource(R.drawable.ic_play_arrow)
-            binding.btnToggleRecording.backgroundTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this, R.color.primary_green))
+            binding.btnToggleRecording.backgroundTintList =
+                android.content.res.ColorStateList.valueOf(
+                    ContextCompat.getColor(
+                        this,
+                        R.color.primary_green
+                    )
+                )
             binding.txtRecordingStatus.text = "IDLE"
             binding.txtRecordingStatus.setTextColor(Color.parseColor("#6E726E"))
         }
@@ -300,8 +325,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val isAccelEnabled = configStore.getRecordAccel()
-        val isGyroEnabled = configStore.getRecordGyro()
+        isAccelEnabled = configStore.getRecordAccel()
+        isGyroEnabled = configStore.getRecordGyro()
 
         val hasAccel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
         val hasGyro = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null
@@ -336,8 +361,11 @@ class MainActivity : AppCompatActivity() {
 
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             currentCsvFile = File(dir, "BLE_Telemetry_$timestamp.csv")
-            csvFileWriter = FileWriter(currentCsvFile, true)
-            csvFileWriter?.append("TimeStamp,BLE1_RSSI,BLE2_RSSI,BLE3_RSSI,Accel_X,Accel_Y,Accel_Z,Gyro_X,Gyro_Y,Gyro_Z,IMU,Zone\n")
+            if (writeExecutor.isShutdown) {
+                writeExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+            }
+            csvFileWriter = java.io.BufferedWriter(FileWriter(currentCsvFile, true))
+            csvFileWriter?.write("TimeStamp,BLE1_RSSI,BLE2_RSSI,BLE3_RSSI,Accel_X,Accel_Y,Accel_Z,Gyro_X,Gyro_Y,Gyro_Z,IMU,Zone\n")
             csvFileWriter?.flush()
         } catch (e: IOException) {
             Toast.makeText(this, "Failed to create CSV file: ${e.message}", Toast.LENGTH_LONG)
@@ -380,14 +408,22 @@ class MainActivity : AppCompatActivity() {
         if (isAccelEnabled) {
             val accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
             if (accel != null) {
-                sensorManager.registerListener(sensorListener, accel, SensorManager.SENSOR_DELAY_NORMAL)
+                sensorManager.registerListener(
+                    sensorListener,
+                    accel,
+                    SensorManager.SENSOR_DELAY_NORMAL
+                )
             }
         }
 
         if (isGyroEnabled) {
             val gyro = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
             if (gyro != null) {
-                sensorManager.registerListener(sensorListener, gyro, SensorManager.SENSOR_DELAY_NORMAL)
+                sensorManager.registerListener(
+                    sensorListener,
+                    gyro,
+                    SensorManager.SENSOR_DELAY_NORMAL
+                )
             }
         }
 
@@ -409,10 +445,18 @@ class MainActivity : AppCompatActivity() {
         binding.visualizerAccel.clear()
         binding.visualizerGyro.clear()
 
+        binding.txtDataPointsCount.text = dataPointsCount.toString()
+
         try {
-            csvFileWriter?.flush()
-            csvFileWriter?.close()
-            csvFileWriter = null
+            writeExecutor.submit {
+                try {
+                    csvFileWriter?.flush()
+                    csvFileWriter?.close()
+                    csvFileWriter = null
+                } catch (e: IOException) {
+                    e.printStackTrace()
+                }
+            }.get()
 
             val dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
             val durationStr = binding.txtRecordingDuration.text.toString()
@@ -423,7 +467,7 @@ class MainActivity : AppCompatActivity() {
             recordStore.saveRecording(RecordingInfo(dateStr, durationStr, csvLocation, entryCount))
 
             Toast.makeText(this, "Saved Recording", Toast.LENGTH_LONG).show()
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             Toast.makeText(this, "Error closing file: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
@@ -543,7 +587,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun formatFloatToPlain(value: Float?): String {
+        if (value == null || value.isNaN() || value.isInfinite()) return ""
+        return java.math.BigDecimal(value.toString()).toPlainString()
+    }
+
     private fun writeTelemetryRow() {
+
+        if (isAccelEnabled && (currentAccelX == null || currentAccelY == null || currentAccelZ == null || currentAccelX!!.isNaN() || currentAccelY!!.isNaN() || currentAccelZ!!.isNaN())) {
+            return
+        }
+
+        if (isGyroEnabled && (currentGyroX == null || currentGyroY == null || currentGyroZ == null || currentGyroX!!.isNaN() || currentGyroY!!.isNaN() || currentGyroZ!!.isNaN())) {
+            return
+        }
+
         val r1 = currentBle1Rssi?.toString() ?: ""
         val r2 = currentBle2Rssi?.toString() ?: ""
         val r3 = currentBle3Rssi?.toString() ?: ""
@@ -551,25 +609,36 @@ class MainActivity : AppCompatActivity() {
         binding.txtCurrentZone.text = selectedZone ?: "--"
         binding.txtCurrentIMU.text = selectedIMU
 
-        val ax = if (configStore.getRecordAccel()) (currentAccelX?.toString() ?: "") else ""
-        val ay = if (configStore.getRecordAccel()) (currentAccelY?.toString() ?: "") else ""
-        val az = if (configStore.getRecordAccel()) (currentAccelZ?.toString() ?: "") else ""
+        val ax = if (isAccelEnabled) formatFloatToPlain(currentAccelX) else ""
+        val ay = if (isAccelEnabled) formatFloatToPlain(currentAccelY) else ""
+        val az = if (isAccelEnabled) formatFloatToPlain(currentAccelZ) else ""
 
-        val gx = if (configStore.getRecordGyro()) (currentGyroX?.toString() ?: "") else ""
-        val gy = if (configStore.getRecordGyro()) (currentGyroY?.toString() ?: "") else ""
-        val gz = if (configStore.getRecordGyro()) (currentGyroZ?.toString() ?: "") else ""
+        val gx = if (isGyroEnabled) formatFloatToPlain(currentGyroX) else ""
+        val gy = if (isGyroEnabled) formatFloatToPlain(currentGyroY) else ""
+        val gz = if (isGyroEnabled) formatFloatToPlain(currentGyroZ) else ""
 
         val zoneVal = selectedZone ?: ""
-        val timeStamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
+        val currentTime = System.currentTimeMillis()
+        val csvRow = "$currentTime,$r1,$r2,$r3,$ax,$ay,$az,$gx,$gy,$gz,$selectedIMU,$zoneVal\n"
 
-        try {
-            csvFileWriter?.append("$timeStamp,$r1,$r2,$r3,$ax,$ay,$az,$gx,$gy,$gz,$selectedIMU,$zoneVal\n")
-            csvFileWriter?.flush()
-            Log.d("BleData", "$timeStamp, $r1, $r2, $r3, $zoneVal, $ax, $ay, $az, $gx, $gy, $gz, $selectedIMU")
-            dataPointsCount++
+        dataPointsCount++
+
+        if (currentTime - lastUiUpdateTime > 300) {
             binding.txtDataPointsCount.text = dataPointsCount.toString()
-        } catch (e: IOException) {
-            e.printStackTrace()
+            lastUiUpdateTime = currentTime
+        }
+
+        writeExecutor.execute {
+            try {
+                csvFileWriter?.write(csvRow)
+                val now = System.currentTimeMillis()
+                if (now - lastFlushTime > 5000) {
+                    csvFileWriter?.flush()
+                    lastFlushTime = now
+                }
+            } catch (e: IOException) {
+                e.printStackTrace()
+            }
         }
     }
 
@@ -650,6 +719,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         stopRecording()
+        writeExecutor.shutdown()
         super.onDestroy()
     }
 }

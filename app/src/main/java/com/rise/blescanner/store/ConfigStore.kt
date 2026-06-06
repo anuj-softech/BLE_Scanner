@@ -86,6 +86,6 @@ class ConfigStore(context: Context) {
     }
 
     fun getShowVisualizer(): Boolean {
-        return prefs.getBoolean(KEY_SHOW_VISUALIZER, true)
+        return prefs.getBoolean(KEY_SHOW_VISUALIZER, false)
     }
 }
