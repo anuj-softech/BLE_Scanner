@@ -9,6 +9,7 @@ import androidx.core.content.FileProvider
 import androidx.recyclerview.widget.RecyclerView
 import com.rise.blescanner.databinding.ItemRecordingBinding
 import com.rise.blescanner.models.RecordingInfo
+import com.rise.blescanner.CsvViewActivity
 import java.io.File
 
 class RecordAdapter(
@@ -42,6 +43,17 @@ class RecordAdapter(
             binding.txtDataPoints.text = recording.entryCount.toString()
 
             val context = binding.root.context
+
+            binding.btnView.setOnClickListener {
+                if (!file.exists()) {
+                    Toast.makeText(context, "Recording file does not exist", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                val intent = Intent(context, CsvViewActivity::class.java).apply {
+                    putExtra("csv_path", file.absolutePath)
+                }
+                context.startActivity(intent)
+            }
 
             binding.btnShare.setOnClickListener {
                 if (!file.exists()) {

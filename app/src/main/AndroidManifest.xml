@@ -35,6 +35,9 @@
         </provider>
 
         <activity
+            android:name=".CsvViewActivity"
+            android:exported="false" />
+        <activity
             android:name=".RecordManager"
             android:exported="false" />
         <activity

@@ -51,6 +51,10 @@ class SettingActivity : AppCompatActivity() {
         updateUiForAnchor(1, tempBle1)
         updateUiForAnchor(2, tempBle2)
         updateUiForAnchor(3, tempBle3)
+
+        binding.switchRecordAccel.isChecked = configStore.getRecordAccel()
+        binding.switchRecordGyro.isChecked = configStore.getRecordGyro()
+        binding.switchShowVisualizer.isChecked = configStore.getShowVisualizer()
     }
 
 
@@ -82,6 +86,18 @@ class SettingActivity : AppCompatActivity() {
 
         binding.btnSelectBle3.setOnClickListener {
             showDeviceSelectorDialog(3)
+        }
+
+        binding.switchRecordAccel.setOnCheckedChangeListener { _, isChecked ->
+            configStore.saveRecordAccel(isChecked)
+        }
+
+        binding.switchRecordGyro.setOnCheckedChangeListener { _, isChecked ->
+            configStore.saveRecordGyro(isChecked)
+        }
+
+        binding.switchShowVisualizer.setOnCheckedChangeListener { _, isChecked ->
+            configStore.saveShowVisualizer(isChecked)
         }
 
         binding.btnBack.setOnClickListener {

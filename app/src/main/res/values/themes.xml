@@ -6,7 +6,6 @@
     </style>
 
     <style name="Theme.BLEScanner" parent="Base.Theme.BLEScanner">
-        <!-- Make status bar icons dark (visible on light background) -->
         <item name="android:windowLightStatusBar">true</item>
     </style>
 

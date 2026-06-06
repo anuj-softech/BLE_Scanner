@@ -21,6 +21,9 @@ class ConfigStore(context: Context) {
         private const val KEY_BLE2_MAC = "ble2_mac"
         private const val KEY_BLE3_NAME = "ble3_name"
         private const val KEY_BLE3_MAC = "ble3_mac"
+        private const val KEY_RECORD_ACCEL = "record_accel"
+        private const val KEY_RECORD_GYRO = "record_gyro"
+        private const val KEY_SHOW_VISUALIZER = "show_visualizer"
     }
 
     fun saveBle1(config: BleDeviceConfig) {
@@ -60,5 +63,29 @@ class ConfigStore(context: Context) {
         val name = prefs.getString(KEY_BLE3_NAME, null)
         val mac = prefs.getString(KEY_BLE3_MAC, null)
         return if (name != null && mac != null) BleDeviceConfig(name, mac) else null
+    }
+
+    fun saveRecordAccel(enable: Boolean) {
+        prefs.edit().putBoolean(KEY_RECORD_ACCEL, enable).apply()
+    }
+
+    fun getRecordAccel(): Boolean {
+        return prefs.getBoolean(KEY_RECORD_ACCEL, true)
+    }
+
+    fun saveRecordGyro(enable: Boolean) {
+        prefs.edit().putBoolean(KEY_RECORD_GYRO, enable).apply()
+    }
+
+    fun getRecordGyro(): Boolean {
+        return prefs.getBoolean(KEY_RECORD_GYRO, true)
+    }
+
+    fun saveShowVisualizer(enable: Boolean) {
+        prefs.edit().putBoolean(KEY_SHOW_VISUALIZER, enable).apply()
+    }
+
+    fun getShowVisualizer(): Boolean {
+        return prefs.getBoolean(KEY_SHOW_VISUALIZER, true)
     }
 }

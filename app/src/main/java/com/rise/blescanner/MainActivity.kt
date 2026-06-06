@@ -12,6 +12,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -46,14 +50,25 @@ class MainActivity : AppCompatActivity() {
     private var scanner: BluetoothLeScanner? = null
     private var scanCallback: ScanCallback? = null
     private lateinit var configStore: ConfigStore
+    private lateinit var sensorManager: SensorManager
 
     private var isRecording = false
     private var dataPointsCount = 0
     private var startTimeMillis = 0L
 
     private var zones = arrayOf("Zone_1", "Zone_2", "Zone_3")
+    private var selectedZone: String? = null
 
-    private var selectedZone = "Zone_1";
+    private var imuOptions = arrayOf("Walking", "Standing", "Left Turn", "Right Turn")
+    private var selectedIMU = "Standing"
+
+    private var currentAccelX: Float? = null
+    private var currentAccelY: Float? = null
+    private var currentAccelZ: Float? = null
+
+    private var currentGyroX: Float? = null
+    private var currentGyroY: Float? = null
+    private var currentGyroZ: Float? = null
 
     private var currentBle1Rssi: Int? = null
     private var currentBle2Rssi: Int? = null
@@ -61,6 +76,37 @@ class MainActivity : AppCompatActivity() {
 
     private var csvFileWriter: FileWriter? = null
     private var currentCsvFile: File? = null
+
+    private val sensorListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            if (!isRecording) return
+            if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
+                val x = event.values[0]
+                val y = event.values[1]
+                val z = event.values[2]
+                currentAccelX = x
+                currentAccelY = y
+                currentAccelZ = z
+                binding.txtAccelXAxis.text = String.format(Locale.US, "%.6f", x)
+                binding.txtAccelYAxis.text = String.format(Locale.US, "%.6f", y)
+                binding.txtAccelZAxis.text = String.format(Locale.US, "%.6f", z)
+                binding.visualizerAccel.addValues(x, y, z)
+            } else if (event.sensor.type == Sensor.TYPE_GYROSCOPE) {
+                val x = event.values[0]
+                val y = event.values[1]
+                val z = event.values[2]
+                currentGyroX = x
+                currentGyroY = y
+                currentGyroZ = z
+                binding.txtGyroXAxis.text = String.format(Locale.US, "%.6f", x)
+                binding.txtGyroYAxis.text = String.format(Locale.US, "%.6f", y)
+                binding.txtGyroZAxis.text = String.format(Locale.US, "%.6f", z)
+                binding.visualizerGyro.addValues(x, y, z)
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
+    }
 
     private val handler = Handler(Looper.getMainLooper())
     private val timerRunnable = object : Runnable {
@@ -154,14 +200,25 @@ class MainActivity : AppCompatActivity() {
         }
 
         configStore = ConfigStore(this)
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         checkAndRequestPermissions()
         setupUI()
+        binding.visualizerGyro.setMaxValue(6f)
     }
 
     override fun onResume() {
         super.onResume()
         displayConfiguredAnchors()
         setupZoneSelector()
+        setupIMUSelector()
+
+        val isAccelEnabled = configStore.getRecordAccel()
+        val isGyroEnabled = configStore.getRecordGyro()
+        val showVisualizer = configStore.getShowVisualizer()
+
+        binding.layoutAccelVisual.visibility = if (isAccelEnabled) View.VISIBLE else View.GONE
+        binding.layoutGyroVisual.visibility = if (isGyroEnabled) View.VISIBLE else View.GONE
+        binding.layoutSensorVisuals.visibility = if (showVisualizer && (isAccelEnabled || isGyroEnabled)) View.VISIBLE else View.GONE
     }
 
     private fun setupUI() {
@@ -238,6 +295,41 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        if (selectedZone == null) {
+            Toast.makeText(this, "Please select a target zone first", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val isAccelEnabled = configStore.getRecordAccel()
+        val isGyroEnabled = configStore.getRecordGyro()
+
+        val hasAccel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
+        val hasGyro = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null
+
+        if (isAccelEnabled && !hasAccel) {
+            AlertDialog.Builder(this)
+                .setTitle("Sensor Unavailable")
+                .setMessage("Accelerometer is not available on this device. Please disable it in Settings.")
+                .setPositiveButton("Go to Settings") { _, _ ->
+                    startActivity(Intent(this, SettingActivity::class.java))
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+            return
+        }
+
+        if (isGyroEnabled && !hasGyro) {
+            AlertDialog.Builder(this)
+                .setTitle("Sensor Unavailable")
+                .setMessage("Gyroscope is not available on this device. Please disable it in Settings.")
+                .setPositiveButton("Go to Settings") { _, _ ->
+                    startActivity(Intent(this, SettingActivity::class.java))
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+            return
+        }
+
         try {
             val dir = File(filesDir, "recordings")
             if (!dir.exists()) dir.mkdirs()
@@ -245,7 +337,7 @@ class MainActivity : AppCompatActivity() {
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             currentCsvFile = File(dir, "BLE_Telemetry_$timestamp.csv")
             csvFileWriter = FileWriter(currentCsvFile, true)
-            csvFileWriter?.append("BLE1_RSSI,BLE2_RSSI,BLE3_RSSI,Zone\n")
+            csvFileWriter?.append("TimeStamp,BLE1_RSSI,BLE2_RSSI,BLE3_RSSI,Accel_X,Accel_Y,Accel_Z,Gyro_X,Gyro_Y,Gyro_Z,IMU,Zone\n")
             csvFileWriter?.flush()
         } catch (e: IOException) {
             Toast.makeText(this, "Failed to create CSV file: ${e.message}", Toast.LENGTH_LONG)
@@ -264,10 +356,40 @@ class MainActivity : AppCompatActivity() {
         currentBle2Rssi = null
         currentBle3Rssi = null
 
+        currentAccelX = null
+        currentAccelY = null
+        currentAccelZ = null
+        currentGyroX = null
+        currentGyroY = null
+        currentGyroZ = null
+
         binding.txtBle1Rssi.text = "--"
         binding.txtBle2Rssi.text = "--"
         binding.txtBle3Rssi.text = "--"
-        binding.txtCurrentZone.text = selectedZone
+        binding.txtAccelXAxis.text = "--"
+        binding.txtAccelYAxis.text = "--"
+        binding.txtAccelZAxis.text = "--"
+        binding.txtGyroXAxis.text = "--"
+        binding.txtGyroYAxis.text = "--"
+        binding.txtGyroZAxis.text = "--"
+        binding.txtCurrentZone.text = selectedZone ?: "--"
+        binding.txtCurrentIMU.text = selectedIMU
+        binding.visualizerAccel.clear()
+        binding.visualizerGyro.clear()
+
+        if (isAccelEnabled) {
+            val accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            if (accel != null) {
+                sensorManager.registerListener(sensorListener, accel, SensorManager.SENSOR_DELAY_NORMAL)
+            }
+        }
+
+        if (isGyroEnabled) {
+            val gyro = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+            if (gyro != null) {
+                sensorManager.registerListener(sensorListener, gyro, SensorManager.SENSOR_DELAY_NORMAL)
+            }
+        }
 
         updateRecordingUiState()
         handler.post(timerRunnable)
@@ -283,6 +405,9 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(timerRunnable)
 
         stopBleScan()
+        sensorManager.unregisterListener(sensorListener)
+        binding.visualizerAccel.clear()
+        binding.visualizerGyro.clear()
 
         try {
             csvFileWriter?.flush()
@@ -403,20 +528,44 @@ class MainActivity : AppCompatActivity() {
 
     }
 
+    private fun setupIMUSelector() {
+        val adapter = android.widget.ArrayAdapter(
+            this,
+            android.R.layout.simple_dropdown_item_1line,
+            imuOptions
+        )
+
+        binding.spinnerIMUSelector.setAdapter(adapter)
+        binding.spinnerIMUSelector.setText("Standing", false)
+
+        binding.spinnerIMUSelector.setOnItemClickListener { parent, _, position, _ ->
+            selectedIMU = parent.getItemAtPosition(position).toString()
+        }
+    }
+
     private fun writeTelemetryRow() {
         val r1 = currentBle1Rssi?.toString() ?: ""
         val r2 = currentBle2Rssi?.toString() ?: ""
         val r3 = currentBle3Rssi?.toString() ?: ""
 
+        binding.txtCurrentZone.text = selectedZone ?: "--"
+        binding.txtCurrentIMU.text = selectedIMU
 
-        binding.txtCurrentZone.text = selectedZone
+        val ax = if (configStore.getRecordAccel()) (currentAccelX?.toString() ?: "") else ""
+        val ay = if (configStore.getRecordAccel()) (currentAccelY?.toString() ?: "") else ""
+        val az = if (configStore.getRecordAccel()) (currentAccelZ?.toString() ?: "") else ""
 
+        val gx = if (configStore.getRecordGyro()) (currentGyroX?.toString() ?: "") else ""
+        val gy = if (configStore.getRecordGyro()) (currentGyroY?.toString() ?: "") else ""
+        val gz = if (configStore.getRecordGyro()) (currentGyroZ?.toString() ?: "") else ""
+
+        val zoneVal = selectedZone ?: ""
         val timeStamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
 
         try {
-            csvFileWriter?.append("$r1,$r2,$r3,$selectedZone\n")
+            csvFileWriter?.append("$timeStamp,$r1,$r2,$r3,$ax,$ay,$az,$gx,$gy,$gz,$selectedIMU,$zoneVal\n")
             csvFileWriter?.flush()
-            Log.d("BleData", "$timeStamp, $r1, $r2, $r3, $selectedZone")
+            Log.d("BleData", "$timeStamp, $r1, $r2, $r3, $zoneVal, $ax, $ay, $az, $gx, $gy, $gz, $selectedIMU")
             dataPointsCount++
             binding.txtDataPointsCount.text = dataPointsCount.toString()
         } catch (e: IOException) {
